@@ -44,11 +44,26 @@ def _index_records(trainees):
 
 
 def _completed_milestones(record):
-    return {
-        str(item.get("milestone") or "").strip().casefold()
-        for item in (record.get("milestones") or [])
-        if item.get("done") and item.get("milestone")
-    }
+    """Return completed milestones keyed by goal ID, with a name fallback."""
+    completed = {}
+
+    for item in record.get("milestones") or []:
+        if not item.get("done"):
+            continue
+
+        name = str(item.get("milestone") or "").strip()
+        goal_id = item.get("goalId")
+
+        if goal_id is not None and str(goal_id).strip():
+            identity = ("goal", str(goal_id).strip())
+        elif name:
+            identity = ("name", name.casefold())
+        else:
+            continue
+
+        completed[identity] = (name or str(goal_id)).casefold()
+
+    return completed
 
 
 def _milestone_totals(trainees):
@@ -120,6 +135,7 @@ def compare_snapshots(older: dict, newer: dict) -> dict:
     ]
 
     changed = []
+    inactivity_changed = []
 
     for record_id in sorted(old_ids & new_ids):
         old = old_records[record_id]
@@ -148,8 +164,14 @@ def compare_snapshots(older: dict, newer: dict) -> dict:
         old_completed = _completed_milestones(old)
         new_completed = _completed_milestones(new)
 
-        newly_completed = sorted(new_completed - old_completed)
-        no_longer_completed = sorted(old_completed - new_completed)
+        newly_completed = sorted(
+            new_completed[key]
+            for key in new_completed.keys() - old_completed.keys()
+        )
+        no_longer_completed = sorted(
+            old_completed[key]
+            for key in old_completed.keys() - new_completed.keys()
+        )
 
         if newly_completed or no_longer_completed:
             fields["milestones"] = {
@@ -161,10 +183,12 @@ def compare_snapshots(older: dict, newer: dict) -> dict:
         new_inactivity = _inactivity(new, new_reference_date)
 
         if old_inactivity != new_inactivity:
-            fields["inactivity"] = {
+            inactivity_changed.append({
+                "id": new.get("id"),
+                "name": new.get("name") or old.get("name") or "Unnamed trainee",
                 "before": old_inactivity,
                 "after": new_inactivity,
-            }
+            })
 
         if fields:
             changed.append({
@@ -209,9 +233,11 @@ def compare_snapshots(older: dict, newer: dict) -> dict:
             "added": added,
             "missing_from_newer": missing,
             "changed": changed,
+            "inactivity_changed": inactivity_changed,
             "added_count": len(added),
             "missing_from_newer_count": len(missing),
             "changed_count": len(changed),
+            "inactivity_changed_count": len(inactivity_changed),
         },
         "milestone_progress": {
             "before": old_milestones,

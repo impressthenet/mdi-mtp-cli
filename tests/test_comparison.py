@@ -105,12 +105,15 @@ def test_inactivity_uses_each_snapshots_own_reference_date():
     ], NEWER)
 
     result = compare_snapshots(old, new)
-    changes = result["records"]["changed"][0]["changes"]
 
-    assert changes["inactivity"]["before"]["days_since_activity"] == 11
-    assert changes["inactivity"]["after"]["days_since_activity"] == 45
-    assert changes["inactivity"]["before"]["band"] == "Current"
-    assert changes["inactivity"]["after"]["band"] == "Attention"
+    assert result["records"]["changed_count"] == 0
+    assert result["records"]["inactivity_changed_count"] == 1
+
+    change = result["records"]["inactivity_changed"][0]
+    assert change["before"]["days_since_activity"] == 11
+    assert change["after"]["days_since_activity"] == 45
+    assert change["before"]["band"] == "Current"
+    assert change["after"]["band"] == "Attention"
 
 
 def test_duplicate_ids_are_not_matched():
@@ -172,3 +175,43 @@ def test_invalid_snapshot_is_rejected():
             {"schema_version": 2},
             snapshot([], NEWER),
         )
+
+
+def test_milestone_identity_uses_goal_id_for_duplicate_names():
+    old = snapshot([
+        trainee(1, milestones=[
+            {"goalId": 10, "milestone": "Attend workshop", "done": True},
+            {"goalId": 11, "milestone": "Attend workshop", "done": False},
+        ]),
+    ], OLDER)
+
+    new = snapshot([
+        trainee(1, milestones=[
+            {"goalId": 10, "milestone": "Attend workshop", "done": True},
+            {"goalId": 11, "milestone": "Attend workshop", "done": True},
+        ]),
+    ], NEWER)
+
+    result = compare_snapshots(old, new)
+    changes = result["records"]["changed"][0]["changes"]
+
+    assert changes["milestones"]["newly_completed"] == ["attend workshop"]
+    assert changes["milestones"]["no_longer_completed"] == []
+
+
+def test_renamed_milestone_with_same_goal_id_is_not_a_new_completion():
+    old = snapshot([
+        trainee(1, milestones=[
+            {"goalId": 42, "milestone": "Attend workshop", "done": True},
+        ]),
+    ], OLDER)
+
+    new = snapshot([
+        trainee(1, milestones=[
+            {"goalId": 42, "milestone": "Participate in workshop", "done": True},
+        ]),
+    ], NEWER)
+
+    result = compare_snapshots(old, new)
+
+    assert result["records"]["changed_count"] == 0

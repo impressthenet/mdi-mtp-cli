@@ -64,7 +64,11 @@ def _inactivity_band(latest_date, reference_date):
 
 
 def _duplicate_review(trainees):
-    """Identify repeated-name records for human review; never merge them."""
+    """Group repeated-name records for human review; never merge them.
+
+    Sorting all name tokens can create false positives for multi-part names.
+    A group is a review candidate, not an identity determination.
+    """
     grouped = defaultdict(list)
 
     def normalized_name(record):
@@ -75,7 +79,8 @@ def _duplicate_review(trainees):
             ) if part
         )
         # Ignore capitalization, whitespace, comma placement, and
-        # first-name/last-name order. This is a review grouping only.
+        # first-name/last-name order. Sorting can collide for distinct
+        # multi-part names, so this is only a review grouping.
         parts = name.replace(",", " ").casefold().split()
         return " ".join(sorted(parts))
 

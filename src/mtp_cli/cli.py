@@ -630,6 +630,7 @@ def cmd_compare_offline(args) -> int:
     print(f"  Added in newer snapshot:       {records['added_count']}")
     print(f"  Missing from newer snapshot:   {records['missing_from_newer_count']}")
     print(f"  Matched records with changes:  {records['changed_count']}")
+    print(f"  Inactivity changes:              {records['inactivity_changed_count']}")
 
     for heading, key in (
         ("ADDED IN NEWER SNAPSHOT", "added"),
@@ -645,6 +646,25 @@ def cmd_compare_offline(args) -> int:
         for person in records["changed"]:
             fields = ", ".join(person["changes"])
             print(f"  {person['name']} (ID: {person['id']}): {fields}")
+
+    if records["inactivity_changed"]:
+        print("\nINACTIVITY CHANGES")
+
+        def format_inactivity(value):
+            if value is None:
+                return "Not in progress"
+            return (
+                f"{value['band']} "
+                f"({value['days_since_activity']} days)"
+            )
+
+        for person in records["inactivity_changed"]:
+            before = format_inactivity(person["before"])
+            after = format_inactivity(person["after"])
+            print(
+                f"  {person['name']} (ID: {person['id']}): "
+                f"{before} → {after}"
+            )
 
     milestones = result["milestone_progress"]
     print("\nMILESTONE PROGRESS")
@@ -670,8 +690,11 @@ def cmd_compare_offline(args) -> int:
     )
 
     print(
-        "\nNote: Added/missing records describe snapshot differences; "
-        "they do not establish program entry or exit."
+        "\nNotes:"
+        "\n  - Ambiguous IDs are excluded from matching."
+        "\n  - Apparent additions or missing records may result from duplicate IDs."
+        "\n  - Added/missing records describe snapshot differences, not confirmed "
+        "program entry or exit."
     )
     return 0
 
