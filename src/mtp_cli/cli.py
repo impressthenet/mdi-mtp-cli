@@ -19,6 +19,7 @@ from .model import (EVENT_FIELDS, GOALS, HOW_DONE_OPTIONS, PERSON_FIELDS, STATUS
 from .rpc import DEFAULT_SERVER, Client, RPCError
 from .store import Store, crawl
 from .reporting import build_snapshot
+from .exports import write_snapshot_csv
 
 STATUS_ALIASES = {
     "not-started": 1, "not-yet-started": 1, "in-progress": 2, "active": 2,
@@ -556,6 +557,33 @@ def cmd_analyze_offline(args) -> int:
     return 0
 
 
+def cmd_export_offline(args) -> int:
+    """Export CSV data from a saved snapshot without connecting to the tracker."""
+    snapshot_path = Path(args.snapshot).expanduser()
+    output_path = (
+        Path(args.output).expanduser()
+        if args.output
+        else Path("reports") / f"{snapshot_path.stem}-{args.type}.csv"
+    )
+
+    try:
+        with snapshot_path.open(encoding="utf-8") as f:
+            snapshot = json.load(f)
+
+        count = write_snapshot_csv(snapshot, args.type, output_path)
+
+    except (OSError, ValueError) as e:
+        print(f"mtp export: {e}", file=sys.stderr)
+        return 2
+
+    print(f"Saved {count:,} rows to {output_path}")
+
+    if args.type == "duplicates":
+        print("Duplicate candidates are for manual review; confidence is not proof of identity.")
+
+    return 0
+
+
 # ---------------------------------------------------------------- parser
 
 def build_parser() -> argparse.ArgumentParser:
@@ -582,6 +610,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show inactivity lists, mentor attention, and duplicate review",
     )
+
+    sp = sub.add_parser("export", help="export CSV data from a saved snapshot (offline)")
+    sp.add_argument("snapshot", help="path to a saved JSON snapshot")
+    sp.add_argument(
+        "--type",
+        required=True,
+        choices=("inactivity", "mentors", "duplicates"),
+        help="type of CSV export",
+    )
+    sp.add_argument("-o", "--output", help="output CSV path (default: reports/<snapshot>-<type>.csv)")
 
     sp = sub.add_parser("search", help="list trainees, using the same filters as the web UI")
     sp.add_argument("-s", "--status", help="in-progress (default), not-started, completed, paused, left, other, all, or 1-5")
@@ -663,6 +701,8 @@ def main(argv=None) -> int:
         return cmd_milestones_offline(args)
     if args.command == "analyze":
         return cmd_analyze_offline(args)
+    if args.command == "export":
+        return cmd_export_offline(args)
     load_dotenv()
     try:
         return asyncio.run(run(args))
