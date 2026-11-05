@@ -20,6 +20,7 @@ from .rpc import DEFAULT_SERVER, Client, RPCError
 from .store import Store, crawl
 from .reporting import build_snapshot
 from .exports import write_snapshot_csv
+from .comparison import compare_snapshots
 
 STATUS_ALIASES = {
     "not-started": 1, "not-yet-started": 1, "in-progress": 2, "active": 2,
@@ -584,6 +585,97 @@ def cmd_export_offline(args) -> int:
     return 0
 
 
+def cmd_compare_offline(args) -> int:
+    """Compare two saved snapshots without connecting to the tracker."""
+    try:
+        with Path(args.older).expanduser().open(encoding="utf-8") as f:
+            older = json.load(f)
+        with Path(args.newer).expanduser().open(encoding="utf-8") as f:
+            newer = json.load(f)
+
+        result = compare_snapshots(older, newer)
+
+    except (OSError, ValueError, TypeError) as e:
+        print(f"mtp compare: {e}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+
+    print(
+        f"MTP Snapshot Comparison — "
+        f"{result['older_snapshot_date']} → {result['newer_snapshot_date']}"
+    )
+    print(f"Elapsed days: {result['elapsed_days']}")
+
+    totals = result["totals"]
+    print("\nTRAINEE TOTALS")
+    print(
+        f"  Before: {totals['before']:,}  "
+        f"After: {totals['after']:,}  "
+        f"Change: {totals['change']:+,}"
+    )
+
+    print("\nSTATUS CHANGES")
+    for status, item in result["status_changes"].items():
+        print(
+            f"  {status:<28} "
+            f"{item['before']:>5} → {item['after']:>5} "
+            f"({item['change']:+,})"
+        )
+
+    records = result["records"]
+    print("\nRECORD CHANGES")
+    print(f"  Added in newer snapshot:       {records['added_count']}")
+    print(f"  Missing from newer snapshot:   {records['missing_from_newer_count']}")
+    print(f"  Matched records with changes:  {records['changed_count']}")
+
+    for heading, key in (
+        ("ADDED IN NEWER SNAPSHOT", "added"),
+        ("MISSING FROM NEWER SNAPSHOT", "missing_from_newer"),
+    ):
+        if records[key]:
+            print(f"\n{heading}")
+            for person in records[key]:
+                print(f"  {person['name']} (ID: {person['id']})")
+
+    if records["changed"]:
+        print("\nCHANGED RECORDS")
+        for person in records["changed"]:
+            fields = ", ".join(person["changes"])
+            print(f"  {person['name']} (ID: {person['id']}): {fields}")
+
+    milestones = result["milestone_progress"]
+    print("\nMILESTONE PROGRESS")
+    print(
+        f"  Completed: {milestones['before']['completed']:,} → "
+        f"{milestones['after']['completed']:,} "
+        f"({milestones['completed_change']:+,})"
+    )
+    print(
+        f"  Recorded:  {milestones['before']['total']:,} → "
+        f"{milestones['after']['total']:,} "
+        f"({milestones['total_change']:+,})"
+    )
+
+    ambiguous = result["ambiguous_ids"]
+    print("\nDATA QUALITY / MATCHING")
+    print(f"  Ambiguous IDs in older snapshot: {len(ambiguous['older'])}")
+    print(f"  Ambiguous IDs in newer snapshot: {len(ambiguous['newer'])}")
+    print(
+        f"  Records without IDs: "
+        f"{result['records_without_ids']['older']} older / "
+        f"{result['records_without_ids']['newer']} newer"
+    )
+
+    print(
+        "\nNote: Added/missing records describe snapshot differences; "
+        "they do not establish program entry or exit."
+    )
+    return 0
+
+
 # ---------------------------------------------------------------- parser
 
 def build_parser() -> argparse.ArgumentParser:
@@ -620,6 +712,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="type of CSV export",
     )
     sp.add_argument("-o", "--output", help="output CSV path (default: reports/<snapshot>-<type>.csv)")
+    sp = sub.add_parser("compare", help="compare two saved JSON snapshots (offline)")
+    sp.add_argument("older", help="path to the older JSON snapshot")
+    sp.add_argument("newer", help="path to the newer JSON snapshot")
+    sp.add_argument("--json", action="store_true", help="print machine-readable JSON")
 
     sp = sub.add_parser("search", help="list trainees, using the same filters as the web UI")
     sp.add_argument("-s", "--status", help="in-progress (default), not-started, completed, paused, left, other, all, or 1-5")
@@ -703,6 +799,8 @@ def main(argv=None) -> int:
         return cmd_analyze_offline(args)
     if args.command == "export":
         return cmd_export_offline(args)
+    if args.command == "compare":
+        return cmd_compare_offline(args)
     load_dotenv()
     try:
         return asyncio.run(run(args))
