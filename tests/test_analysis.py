@@ -581,3 +581,51 @@ def test_inactivity_report_handles_invalid_name_types():
 
     assert names[1] == "Unnamed trainee"
     assert names[2] == "Alex Example"
+
+
+def test_human_readable_duplicate_review_hides_record_ids(
+    tmp_path, capsys,
+):
+    import argparse
+    import json
+
+    from mtp_cli.cli import cmd_analyze_offline
+
+    snapshot = {
+        "schema_version": 1,
+        "collected_at": "2026-11-04T12:00:00Z",
+        "trainees": [
+            {
+                "id": "/u/synthetic-account/posts/101",
+                "name": "Example Trainee",
+                "status": "In progress",
+                "division": "Example Division",
+                "team": "Example Team",
+                "mentor": "Example Mentor",
+                "milestones": [],
+            },
+            {
+                "id": "/u/synthetic-account/posts/102",
+                "name": "Example Trainee",
+                "status": "In progress",
+                "division": "Example Division",
+                "team": "Example Team",
+                "mentor": "Example Mentor",
+                "milestones": [],
+            },
+        ],
+    }
+
+    path = tmp_path / "snapshot.json"
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    result = cmd_analyze_offline(
+        argparse.Namespace(snapshot=str(path), json=False, details=True)
+    )
+
+    output = capsys.readouterr().out
+
+    assert result == 0
+    assert "DUPLICATE REVIEW" in output
+    assert "Example Division | Example Team" in output
+    assert "/u/synthetic-account/posts/" not in output

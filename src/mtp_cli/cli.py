@@ -564,8 +564,7 @@ def cmd_analyze_offline(args) -> int:
 
                 for record in group["records"]:
                     print(
-                        f"    {record['id'] or 'No record ID'} | "
-                        f"{record['division'] or 'No division'} | "
+                        f"    {record['division'] or 'No division'} | "
                         f"{record['team'] or 'No team'} | "
                         f"{record['status'] or 'No status'} | "
                         f"Mentor: {record['mentor'] or 'Unassigned'} | "
