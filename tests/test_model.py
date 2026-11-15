@@ -315,11 +315,12 @@ def test_report_existing_file_leaves_no_temporary_files(tmp_path):
     assert list(tmp_path.iterdir()) == [output]
 
 
-def test_report_link_failure_cleans_up_temporary_file(
+def test_report_without_hard_links_falls_back_to_rename(
     tmp_path, monkeypatch,
 ):
     import asyncio
     import errno
+    import json
     from types import SimpleNamespace
 
     from mtp_cli import cli
@@ -336,9 +337,47 @@ def test_report_link_failure_cleans_up_temporary_file(
 
     monkeypatch.setattr(cli.os, "link", reject_hard_link)
 
-    with pytest.raises(OSError) as error:
+    assert asyncio.run(cli.cmd_report(session, args)) == 0
+
+    assert json.loads(output.read_bytes())["summary"]["total_trainees"] == 2
+    assert list(tmp_path.iterdir()) == [output]
+
+
+def test_report_without_hard_links_refuses_to_overwrite(
+    tmp_path, monkeypatch,
+):
+    import asyncio
+    import errno
+    from types import SimpleNamespace
+
+    from mtp_cli import cli
+
+    output = tmp_path / "snapshot.json"
+    original = b"existing snapshot must remain unchanged\n"
+    output.write_bytes(original)
+    session = SimpleNamespace(tracker=make_tracker())
+    args = SimpleNamespace(output=str(output))
+
+    def reject_hard_link(source, destination):
+        raise OSError(errno.EOPNOTSUPP, "hard links not supported")
+
+    monkeypatch.setattr(cli.os, "link", reject_hard_link)
+
+    with pytest.raises(cli.UsageError, match="refusing to overwrite"):
         asyncio.run(cli.cmd_report(session, args))
 
-    assert error.value.errno == errno.EOPNOTSUPP
-    assert not output.exists()
-    assert list(tmp_path.iterdir()) == []
+    assert output.read_bytes() == original
+    assert list(tmp_path.iterdir()) == [output]
+
+
+def test_milestones_for_matches_milestones():
+    tracker = make_tracker()
+    trainees, _ = tracker.trainees(status="all")
+
+    batch = tracker.milestones_for(trainees)
+
+    assert set(batch) == {t.id for t in trainees}
+    for t in trainees:
+        assert [m.as_dict() for m in batch[t.id]] == [
+            m.as_dict() for m in tracker.milestones(t)
+        ]

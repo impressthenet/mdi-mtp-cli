@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 from . import model
-from .analysis import analyze_snapshot
+from .analysis import CONFIRMATIONS_FILENAME, analyze_snapshot, load_duplicate_confirmations
 from .model import (EVENT_FIELDS, GOALS, HOW_DONE_OPTIONS, PERSON_FIELDS, STATUS_OPTIONS,
                     NotFound, Structure, Tracker)
 from .rpc import DEFAULT_SERVER, Client, RPCError
@@ -215,7 +215,17 @@ async def cmd_report(s: Session, args) -> int:
             os.fsync(f.fileno())
 
         # Atomic publication without overwriting an existing snapshot.
-        os.link(temporary_path, output)
+        try:
+            os.link(temporary_path, output)
+        except FileExistsError:
+            raise
+        except OSError:
+            # No hard links on this filesystem (e.g. exFAT, some network
+            # shares). A rename is still atomic but would overwrite, so
+            # check first; the gap only matters for concurrent writers.
+            if output.exists():
+                raise FileExistsError(output) from None
+            os.replace(temporary_path, output)
 
     except FileExistsError:
         raise UsageError(
@@ -425,6 +435,15 @@ def cmd_milestones_offline(args) -> int:
 
 
 
+def load_confirmations(args, snapshot_path: Path) -> dict:
+    """Duplicate confirmations from --confirmations, else from beside the snapshot."""
+    path = (Path(args.confirmations).expanduser() if args.confirmations
+            else snapshot_path.parent / CONFIRMATIONS_FILENAME)
+    if args.confirmations and not path.exists():
+        raise FileNotFoundError(f"confirmations file not found: {path}")
+    return load_duplicate_confirmations(path)
+
+
 def cmd_analyze_offline(args) -> int:
     """Analyze a saved snapshot without connecting to the tracker."""
     path = Path(args.snapshot).expanduser()
@@ -432,7 +451,7 @@ def cmd_analyze_offline(args) -> int:
     try:
         with path.open(encoding="utf-8") as f:
             snapshot = json.load(f)
-        result = analyze_snapshot(snapshot)
+        result = analyze_snapshot(snapshot, load_confirmations(args, path))
     except (OSError, ValueError) as e:
         print(f"mtp analyze: {e}", file=sys.stderr)
         return 2
@@ -596,7 +615,8 @@ def cmd_export_offline(args) -> int:
         with snapshot_path.open(encoding="utf-8") as f:
             snapshot = json.load(f)
 
-        count = write_snapshot_csv(snapshot, args.type, output_path)
+        count = write_snapshot_csv(snapshot, args.type, output_path,
+                                   load_confirmations(args, snapshot_path))
 
     except (OSError, ValueError) as e:
         print(f"mtp export: {e}", file=sys.stderr)
@@ -726,6 +746,10 @@ def cmd_compare_offline(args) -> int:
 
 # ---------------------------------------------------------------- parser
 
+CONFIRMATIONS_HELP = (f"JSON file of manually confirmed duplicate pairs "
+                      f"(default: {CONFIRMATIONS_FILENAME} next to the snapshot, if present)")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mtp", description="Search and update the MDI MTP tracker (writable.site).")
     p.add_argument("-v", "--verbose", action="store_true", help="print load timing to stderr")
@@ -750,6 +774,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="show inactivity lists, mentor attention, and duplicate review",
     )
+    sp.add_argument("--confirmations", help=CONFIRMATIONS_HELP)
 
     sp = sub.add_parser("export", help="export CSV data from a saved snapshot (offline)")
     sp.add_argument("snapshot", help="path to a saved JSON snapshot")
@@ -760,6 +785,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="type of CSV export",
     )
     sp.add_argument("-o", "--output", help="output CSV path (default: reports/<snapshot>-<type>.csv)")
+    sp.add_argument("--confirmations", help=CONFIRMATIONS_HELP)
     sp = sub.add_parser("compare", help="compare two saved JSON snapshots (offline)")
     sp.add_argument("older", help="path to the older JSON snapshot")
     sp.add_argument("newer", help="path to the newer JSON snapshot")

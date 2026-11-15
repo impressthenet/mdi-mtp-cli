@@ -323,17 +323,24 @@ class Tracker:
 
     def milestones(self, trainee: Trainee) -> list[Milestone]:
         """Mirror of MilestoneList(): one row per goal, optional goals only when present."""
-        by_goal: dict[int, tuple[str, dict]] = {}
-        for eid, ev in self._events.items():
-            if ev.get("person") == trainee.id:
-                by_goal[ev.get("goal")] = (eid, ev)
-        rows = []
-        for pos, g in enumerate(GOALS, 1):
-            eid, ev = by_goal.get(g["id"], (None, None))
-            if g.get("optional") and not ev:
-                continue
-            rows.append(Milestone(pos, g, eid, ev))
-        return rows
+        return self.milestones_for([trainee])[trainee.id]
+
+    def milestones_for(self, trainees: list[Trainee]) -> dict[str, list[Milestone]]:
+        """milestones() for many trainees at once, keyed by trainee id; scans the events once."""
+        by_person: dict[str, dict[int, tuple[str, dict]]] = {}
+        for eid, ev in self._events.items():  # a later event for the same goal wins
+            by_person.setdefault(ev.get("person"), {})[ev.get("goal")] = (eid, ev)
+        out = {}
+        for t in trainees:
+            by_goal = by_person.get(t.id, {})
+            rows = []
+            for pos, g in enumerate(GOALS, 1):
+                eid, ev = by_goal.get(g["id"], (None, None))
+                if g.get("optional") and not ev:
+                    continue
+                rows.append(Milestone(pos, g, eid, ev))
+            out[t.id] = rows
+        return out
 
 
 _STOPWORDS = {"a", "an", "the", "at", "to", "of", "with", "your", "my"}

@@ -33,34 +33,14 @@ def build_snapshot(
 
     trainees, counts = tracker.trainees(status="all")
 
-    # Index events once rather than scanning every event for each trainee.
-    # Later events for the same person and goal replace earlier ones,
-    # matching Tracker.milestones() behavior.
-    events_by_person = {}
-    for event_id, event in tracker._events.items():
-        person_id = event.get("person")
-        goal_id = event.get("goal")
-        events_by_person.setdefault(person_id, {})[goal_id] = (
-            event_id, event
-        )
+    milestones = tracker.milestones_for(trainees)
 
     trainee_records = []
     for trainee in trainees:
         record = trainee.as_dict()
-        events_by_goal = events_by_person.get(trainee.id, {})
-
-        milestones = []
-        for position, goal in enumerate(model.GOALS, 1):
-            event_id, event = events_by_goal.get(
-                goal["id"], (None, None)
-            )
-            if goal.get("optional") and not event:
-                continue
-            milestones.append(
-                model.Milestone(position, goal, event_id, event).as_dict()
-            )
-
-        record["milestones"] = milestones
+        record["milestones"] = [
+            milestone.as_dict() for milestone in milestones[trainee.id]
+        ]
         trainee_records.append(record)
 
     status_counts = {

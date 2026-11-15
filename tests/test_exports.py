@@ -171,3 +171,65 @@ def test_duplicate_export_preserves_mixed_pair_confidence():
     assert all(row["lowest_pair_confidence"] == "Low" for row in rows)
     assert all("High:" in row["comparison_evidence"] for row in rows)
     assert all("Low:" in row["comparison_evidence"] for row in rows)
+
+
+def write_duplicate_snapshot(directory):
+    import json
+
+    path = directory / "snapshot.json"
+    path.write_text(json.dumps(snapshot([
+        trainee("/u/synthetic-trainee-011/posts/1011", name="Example, Sam"),
+        trainee("/u/synthetic-trainee-012/posts/1012", name="Sam Example",
+                division="Division B", team="Team B"),
+    ])), encoding="utf-8")
+    return path
+
+
+def test_export_cli_reads_confirmations_next_to_snapshot(
+    tmp_path, monkeypatch,
+):
+    import json
+
+    from mtp_cli.cli import main
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    snapshot_path = write_duplicate_snapshot(data_dir)
+    (data_dir / "duplicate-confirmations.json").write_text(json.dumps({
+        "confirmed_pairs": [{
+            "ids": [
+                "/u/synthetic-trainee-011/posts/1011",
+                "/u/synthetic-trainee-012/posts/1012",
+            ],
+            "reason": "Manually confirmed duplicate",
+        }],
+    }), encoding="utf-8")
+
+    # Run from an unrelated directory: the file is found beside the snapshot.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    output = tmp_path / "duplicates.csv"
+
+    assert main([
+        "export", str(snapshot_path), "--type", "duplicates",
+        "-o", str(output),
+    ]) == 0
+
+    with output.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert {row["group_confidence"] for row in rows} == {"Confirmed"}
+
+
+def test_analyze_cli_reports_missing_confirmations_file(
+    tmp_path, capsys,
+):
+    from mtp_cli.cli import main
+
+    snapshot_path = write_duplicate_snapshot(tmp_path)
+
+    assert main([
+        "analyze", str(snapshot_path),
+        "--confirmations", str(tmp_path / "missing.json"),
+    ]) == 2
+    assert "confirmations file not found" in capsys.readouterr().err

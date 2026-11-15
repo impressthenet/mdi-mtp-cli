@@ -112,9 +112,10 @@ def write_snapshot_csv(
     snapshot: dict,
     export_type: str,
     output: str | Path,
+    confirmations: dict | None = None,
 ) -> int:
     """Analyze a snapshot and write a CSV without overwriting existing files."""
-    result = analyze_snapshot(snapshot)
+    result = analyze_snapshot(snapshot, confirmations)
     rows = export_rows(result, export_type)
     path = Path(output).expanduser()
     path.parent.mkdir(parents=True, exist_ok=True)

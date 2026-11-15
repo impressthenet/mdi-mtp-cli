@@ -204,9 +204,9 @@ def test_invalid_snapshot_is_rejected():
         })
 
 
-def test_duplicate_review_marks_manually_confirmed_pair(tmp_path, monkeypatch):
+def test_duplicate_review_marks_manually_confirmed_pair(tmp_path):
     import json
-    from mtp_cli import analysis
+    from mtp_cli.analysis import load_duplicate_confirmations
 
     confirmation_file = tmp_path / "duplicate-confirmations.json"
     confirmation_file.write_text(
@@ -221,9 +221,7 @@ def test_duplicate_review_marks_manually_confirmed_pair(tmp_path, monkeypatch):
         }),
         encoding="utf-8"
     )
-    monkeypatch.setattr(
-        analysis, "DEFAULT_CONFIRMATIONS_PATH", confirmation_file
-    )
+    confirmations = load_duplicate_confirmations(confirmation_file)
 
     first = {
         **trainee(1, status="Completed program",
@@ -245,7 +243,7 @@ def test_duplicate_review_marks_manually_confirmed_pair(tmp_path, monkeypatch):
         "id": "/u/synthetic-trainee-004/posts/1004",
     }
 
-    result = analyze_snapshot(snapshot([first, second]))
+    result = analyze_snapshot(snapshot([first, second]), confirmations)
     review = result["duplicate_review"]
 
     assert review["repeated_name_groups"] == 1
@@ -620,7 +618,8 @@ def test_human_readable_duplicate_review_hides_record_ids(
     path.write_text(json.dumps(snapshot), encoding="utf-8")
 
     result = cmd_analyze_offline(
-        argparse.Namespace(snapshot=str(path), json=False, details=True)
+        argparse.Namespace(snapshot=str(path), json=False, details=True,
+                           confirmations=None)
     )
 
     output = capsys.readouterr().out

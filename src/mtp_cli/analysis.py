@@ -22,12 +22,16 @@ INACTIVITY_LABELS = (
 
 # Private confirmations are local data, never embedded in source code.
 # These decisions affect review labels only; records are never merged.
-DEFAULT_CONFIRMATIONS_PATH = Path("reports/duplicate-confirmations.json")
+# The CLI looks for this file next to the snapshot unless told otherwise.
+CONFIRMATIONS_FILENAME = "duplicate-confirmations.json"
 
 
-def load_duplicate_confirmations(path=None):
-    """Load manually confirmed record-ID pairs from a private JSON file."""
-    path = Path(path) if path is not None else DEFAULT_CONFIRMATIONS_PATH
+def load_duplicate_confirmations(path):
+    """Load manually confirmed record-ID pairs from a private JSON file.
+
+    A missing file means no confirmations.
+    """
+    path = Path(path)
 
     try:
         with path.open(encoding="utf-8") as f:
@@ -354,8 +358,12 @@ def _validate_snapshot(snapshot: dict) -> dt.date:
     return reference_date
 
 
-def analyze_snapshot(snapshot: dict) -> dict:
-    """Analyze a saved snapshot without network access or tracker changes."""
+def analyze_snapshot(snapshot: dict, confirmations: dict | None = None) -> dict:
+    """Analyze a saved snapshot without network access or tracker changes.
+
+    `confirmations` comes from load_duplicate_confirmations(); this function
+    reads no files itself.
+    """
     reference_date = _validate_snapshot(snapshot)
     trainees = snapshot["trainees"]
 
@@ -500,9 +508,7 @@ def analyze_snapshot(snapshot: dict) -> dict:
             )
         ),
         "mentor_attention_summary": mentor_attention_summary,
-        "duplicate_review": _duplicate_review(
-            trainees, load_duplicate_confirmations()
-        ),
+        "duplicate_review": _duplicate_review(trainees, confirmations),
         "data_quality": {
             "missing_mentor": missing_mentor,
             "missing_latest_date": missing_latest_date,
