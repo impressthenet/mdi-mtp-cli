@@ -444,6 +444,98 @@ def load_confirmations(args, snapshot_path: Path) -> dict:
     return load_duplicate_confirmations(path)
 
 
+def print_executive_summary(result: dict) -> None:
+    """Print a concise, aggregate-only leadership overview."""
+    total = result["total_trainees"]
+    statuses = result["status_counts"]
+    inactivity = result["inactivity_counts"]
+    active = statuses.get("In progress", 0)
+    completed = statuses.get("Completed program", 0)
+
+    def percentage(count, denominator):
+        return 100 * count / denominator if denominator else 0.0
+
+    snapshot_date = dt.date.fromisoformat(result["reference_date"])
+    today = dt.datetime.now(dt.timezone.utc).date()
+    age_days = (today - snapshot_date).days
+
+    print()
+    print("=" * 65)
+    print("MTP EXECUTIVE SUMMARY")
+    print(
+        f"DATA AS OF: "
+        f"{snapshot_date.strftime('%B')} "
+        f"{snapshot_date.day}, {snapshot_date.year}"
+    )
+
+    if age_days > 7:
+        print(
+            f"HISTORICAL SNAPSHOT — NOT CURRENT DATA "
+            f"({age_days} days old)"
+        )
+    elif age_days < 0:
+        print("WARNING: Snapshot date is in the future")
+
+    print("=" * 65)
+    print(f"  Total trainees: {total:,}")
+    print(
+        f"  Completed program: {completed:,} "
+        f"({percentage(completed, total):.1f}%)"
+    )
+    print(f"  In progress: {active:,}")
+
+    print()
+    print("  Active trainee inactivity:")
+    for band in ("Current", "Attention", "Stalled",
+                 "Extended", "Unknown", "Future"):
+        count = inactivity.get(band, 0)
+        print(
+            f"    {band:<12} {count:>4} "
+            f"({percentage(count, active):5.1f}%)"
+        )
+
+    at_risk = inactivity.get("Stalled", 0) + inactivity.get("Extended", 0)
+    print(
+        f"  Stalled or extended: {at_risk:,} "
+        f"({percentage(at_risk, active):.1f}% of active)"
+    )
+
+    unassigned = result["active_mentor_workload"].get("Unassigned", 0)
+    print(f"  Active trainees without mentor: {unassigned:,}")
+
+    division_risk = {}
+    for band in ("Stalled", "Extended"):
+        for person in result["inactivity_trainees"][band]:
+            division = person["division"]
+            division_risk[division] = division_risk.get(division, 0) + 1
+
+    print()
+    print("  Divisions with most stalled/extended trainees:")
+    if division_risk:
+        ranked = sorted(
+            division_risk.items(),
+            key=lambda item: (-item[1], item[0].casefold()),
+        )
+        for division, count in ranked[:5]:
+            print(f"    {division}: {count}")
+    else:
+        print("    None")
+
+    quality = result["data_quality"]
+    print()
+    print("  Data-quality indicators:")
+    for key, count in quality.items():
+        if count:
+            print(f"    {key.replace('_', ' ')}: {count}")
+    if not any(quality.values()):
+        print("    No issues detected by existing checks")
+
+    print()
+    print("  Note: Inactivity reflects recorded tracker activity,")
+    print("  not necessarily a trainee's actual engagement.")
+    print("  Detailed analysis follows.")
+
+
 def cmd_analyze_offline(args) -> int:
     """Analyze a saved snapshot without connecting to the tracker."""
     path = Path(args.snapshot).expanduser()
@@ -465,6 +557,8 @@ def cmd_analyze_offline(args) -> int:
 
     print(f"MTP Snapshot Analysis — {reference_date}")
     print(f"Total trainees: {total:,}")
+
+    print_executive_summary(result)
 
     print()
     print("STATUS")
